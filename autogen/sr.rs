@@ -142,6 +142,12 @@ impl OperandTokens {
                 "IdRef",
                 Some("IdRef"),
             ),
+            "ImageOperands" => (
+                quote! { (spirv::ImageOperands, Vec<spirv::Word>) },
+                quote! { (first, second) },
+                operand.kind.as_str(),
+                Some("IdRef"),
+            ),
             kind => {
                 let kind = Ident::new(kind, Span::call_site());
                 (
@@ -166,11 +172,31 @@ impl OperandTokens {
             }
             Some(name) => {
                 let second_key = Ident::new(name, Span::call_site());
-                quote! {
-                    match (#iter.next(), #iter.next()) {
-                        (Some(&dr::Operand::#first_key(first)), Some(&dr::Operand::#second_key(second))) => Some(#lift_value),
-                        (None, None) => None,
-                        _ => Err(OperandError::WrongType)?,
+                if first_name == "ImageOperands" {
+                    quote! {
+                        match #iter.next() {
+                            Some(&dr::Operand::#first_key(ref value)) => {
+                                let num_operands = value.bits().count_ones();
+                                let operands = (0..num_operands).map(|_|
+                                    match #iter.next() {
+                                        Some(&dr::Operand::#second_key(second)) => Ok(second),
+                                        Some(_) => Err(OperandError::WrongType),
+                                        None => Err(OperandError::Missing),
+                                    }
+                                ).collect::<Result<Vec<_>, _>>()?;
+                                Some((*value, operands))
+                            },
+                            Some(_) => Err(OperandError::WrongType)?,
+                            None => None,
+                        }
+                    }
+                } else {
+                    quote! {
+                        match (#iter.next(), #iter.next()) {
+                            (Some(&dr::Operand::#first_key(first)), Some(&dr::Operand::#second_key(second))) => Some(#lift_value),
+                            (None, None) => None,
+                            _ => Err(OperandError::WrongType)?,
+                        }
                     }
                 }
             }
